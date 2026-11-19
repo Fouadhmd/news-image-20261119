@@ -1,12 +1,11 @@
 // News image generator for 19 November 2026
 // Generates a professional news summary image using only Node.js standard library
-// Refactored: extracted font data to module-level constant, improved type safety
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
-// 5x7 bitmap font patterns for basic ASCII - moved to module level for clarity
+// 5x7 bitmap font patterns for basic ASCII
 const FONT_PATTERNS: Record<string, string[]> = {
   '0': ['01110','10001','10011','10101','11001','10001','01110'],
   '1': ['00100','01100','00100','00100','00100','00100','01110'],
@@ -165,6 +164,28 @@ class PngWriter {
     }
   }
 
+  drawTextWrapped(x: number, y: number, text: string, maxWidth: number, color: [number, number, number], fontSize: number = 13, lineHeight: number = 18): number {
+    const words = text.split(' ');
+    let line = '';
+    let cy = y;
+    for (const word of words) {
+      const testLine = line + (line ? ' ' : '') + word;
+      const textWidth = testLine.length * fontSize * 0.65;
+      if (textWidth > maxWidth && line) {
+        this.drawText(x, cy, line, color, fontSize);
+        cy += lineHeight;
+        line = word;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) {
+      this.drawText(x, cy, line, color, fontSize);
+      cy += lineHeight;
+    }
+    return cy;
+  }
+
   toBuffer(): Buffer {
     // PNG encoding
     const chunks: Buffer[] = [];
@@ -229,6 +250,34 @@ class PngWriter {
     }
     return table;
   }
+
+  // Draw a simple circle (for icons)
+  drawCircle(cx: number, cy: number, radius: number, color: [number, number, number]) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy <= radius * radius) {
+          this.setPixel(cx + dx, cy + dy, color[0], color[1], color[2]);
+        }
+      }
+    }
+  }
+
+  // Draw a simple rectangle with border
+  drawRect(x: number, y: number, w: number, h: number, color: [number, number, number], fill = false, fillColor?: [number, number, number]) {
+    if (fill && fillColor) {
+      this.fillRect(x, y, w, h, fillColor[0], fillColor[1], fillColor[2]);
+    }
+    // Top and bottom borders
+    for (let dx = 0; dx < w; dx++) {
+      this.setPixel(x + dx, y, color[0], color[1], color[2]);
+      this.setPixel(x + dx, y + h - 1, color[0], color[1], color[2]);
+    }
+    // Left and right borders
+    for (let dy = 0; dy < h; dy++) {
+      this.setPixel(x, y + dy, color[0], color[1], color[2]);
+      this.setPixel(x + w - 1, y + dy, color[0], color[1], color[2]);
+    }
+  }
 }
 
 // Generate the news image
@@ -237,103 +286,156 @@ function generateNewsImage(): Buffer {
   const height = 600;
   const png = new PngWriter(width, height);
 
-  // Colors - using const tuples for type safety
+  // Colors
   const WHITE = [255, 255, 255] as const;
   const BLACK = [0, 0, 0] as const;
-  const DARK_BLUE = [20, 40, 80] as const;
-  const MEDIUM_BLUE = [40, 80, 140] as const;
-  const LIGHT_BLUE = [100, 160, 220] as const;
-  const RED = [180, 30, 30] as const;
-  const GREEN = [30, 140, 60] as const;
-  const DARK_GRAY = [60, 60, 60] as const;
-  const LIGHT_GRAY = [220, 220, 220] as const;
+  const DARK_BLUE = [15, 35, 75] as const;
+  const MEDIUM_BLUE = [30, 70, 130] as const;
+  const LIGHT_BLUE = [90, 150, 210] as const;
+  const ACCENT_RED = [190, 40, 40] as const;
+  const ACCENT_GREEN = [35, 150, 65] as const;
+  const ACCENT_ORANGE = [220, 140, 30] as const;
+  const ACCENT_PURPLE = [130, 60, 180] as const;
+  const DARK_GRAY = [50, 50, 50] as const;
+  const MEDIUM_GRAY = [100, 100, 100] as const;
+  const LIGHT_GRAY = [235, 235, 235] as const;
+  const VERY_LIGHT_GRAY = [248, 248, 248] as const;
+  const CARD_BG = [250, 250, 252] as const;
+  const BORDER_COLOR = [200, 205, 215] as const;
 
-  // Header bar
-  png.fillRect(0, 0, width, 100, ...DARK_BLUE);
-
-  // Date banner
-  png.fillRect(0, 100, width, 40, ...MEDIUM_BLUE);
-
-  // Main content area
-  png.fillRect(0, 140, width, height - 140, ...WHITE);
-
-  // Title
-  png.drawText(40, 20, 'WORLD NEWS DAILY', WHITE, 32);
-  png.drawText(40, 55, 'Thursday, 19 November 2026', [200, 220, 255], 18);
-
-  // Date in banner
-  png.drawText(40, 110, '19 NOVEMBER 2026  •  THURSDAY', WHITE, 20);
-
-  // Divider lines
-  png.fillRect(40, 155, width - 80, 2, ...LIGHT_BLUE);
-  png.fillRect(40, 560, width - 80, 2, ...LIGHT_BLUE);
-
-  // News sections - 3 columns
-  const colWidth = (width - 100) / 3;
-  const colStart = [40, 40 + colWidth + 10, 40 + 2 * (colWidth + 10)];
-  const sectionTop = 170;
-  const sectionHeight = 380;
-
-  // Column backgrounds
-  for (let i = 0; i < 3; i++) {
-    png.fillRect(colStart[i], sectionTop, colWidth, sectionHeight, ...LIGHT_GRAY);
-    png.fillRect(colStart[i], sectionTop, colWidth, 35, i === 0 ? RED : (i === 1 ? DARK_BLUE : GREEN));
+  // ===== HEADER BAR =====
+  png.fillRect(0, 0, width, 110, ...DARK_BLUE);
+  // Gradient accent line
+  for (let x = 0; x < width; x++) {
+    const ratio = x / width;
+    const r = Math.round(15 + ratio * 25);
+    const g = Math.round(35 + ratio * 45);
+    const b = Math.round(75 + ratio * 55);
+    png.setPixel(x, 109, r, g, b);
   }
 
-  // Column headers
-  png.drawText(colStart[0] + 10, sectionTop + 8, 'WORLD & POLITICS', WHITE, 14);
-  png.drawText(colStart[1] + 10, sectionTop + 8, 'BUSINESS & TECH', WHITE, 14);
-  png.drawText(colStart[2] + 10, sectionTop + 8, 'SCIENCE & SPORTS', WHITE, 14);
+  // Title
+  png.drawText(40, 18, 'WORLD NEWS DAILY', WHITE, 34);
+  png.drawText(40, 58, 'Thursday, 19 November 2026', [200, 220, 255], 18);
 
-  // News items for each column
+  // Date badge on right
+  png.fillRect(width - 220, 15, 180, 45, ...ACCENT_RED);
+  png.drawText(width - 205, 22, '19 NOV 2026', WHITE, 22);
+  png.drawText(width - 205, 44, 'THURSDAY', WHITE, 13);
+
+  // World icon
+  png.drawCircle(width - 40, 37, 18, [100, 180, 255]);
+  png.drawCircle(width - 40, 37, 12, DARK_BLUE);
+  // Simple meridians
+  for (let angle = 0; angle < 360; angle += 45) {
+    const x = Math.round((width - 40) + 8 * Math.cos(angle * Math.PI / 180));
+    const y = Math.round(37 + 8 * Math.sin(angle * Math.PI / 180));
+    png.setPixel(x, y, 100, 180, 255);
+  }
+
+  // ===== SECTION DIVIDER =====
+  png.fillRect(0, 110, width, 4, [60, 110, 180]);
+
+  // ===== MAIN CONTENT AREA =====
+  png.fillRect(0, 114, width, height - 114, ...VERY_LIGHT_GRAY);
+
+  // Top horizontal divider
+  png.fillRect(40, 134, width - 80, 2, ...LIGHT_BLUE);
+
+  // ===== NEWS COLUMNS =====
+  const colGap = 15;
+  const colWidth = (width - 100 - 2 * colGap) / 3;
+  const colStart = [50, 50 + colWidth + colGap, 50 + 2 * (colWidth + colGap)];
+  const sectionTop = 150;
+  const cardTop = 190;
+  const cardHeight = 380;
+  const cardBottom = cardTop + cardHeight;
+
+  // Column headers with icons
+  const colHeaders = [
+    { title: 'WORLD & POLITICS', color: ACCENT_RED, icon: '🌐' },
+    { title: 'BUSINESS & TECH', color: DARK_BLUE, icon: '💼' },
+    { title: 'SCIENCE & SPORTS', color: ACCENT_GREEN, icon: '🔬' },
+  ];
+
   const worldNews = [
     'UN Climate Summit Opens in Baku',
-    'G20 Leaders Meet on Trade Reform',
+    'G20 Leaders Agree Trade Reform',
     'Middle East Ceasefire Talks Resume',
     'EU Migration Pact Takes Effect',
     'African Union Elects New Chair',
-    'Pacific Islands Forum on Sea Rise',
+    'Pacific Forum Warns on Sea Rise',
   ];
 
   const bizTechNews = [
     'Fed Holds Rates Steady at 4.5%',
     'AI Chip Export Rules Updated',
-    'Global Semiconductor Sales Rise 12%',
-    'Major Bank Merger Announced',
-    'Crypto Regulation Framework Passes',
-    'Quantum Computing Milestone Reached',
+    'Semiconductor Sales Surge 12%',
+    'Major Euro Bank Merger Announced',
+    'Crypto Framework Passes Senate',
+    'Quantum Computing Milestone',
   ];
 
   const sciSportsNews = [
-    'Artemis IV Moon Mission Launches',
-    'Fusion Reactor Sets Energy Record',
+    'Artemis IV Launches to Moon',
+    'Fusion Reactor Sets Record',
     'New Antibiotic Shows Promise',
-    'World Cup Qualifiers: Key Matches',
+    'World Cup Qualifiers Decided',
     'Tennis Finals: Historic Upset',
-    'Marathon Record Broken in NYC',
+    'Marathon Record Falls in NYC',
   ];
 
   const allNews = [worldNews, bizTechNews, sciSportsNews];
-  const accentColors = [RED, DARK_BLUE, GREEN];
 
   for (let col = 0; col < 3; col++) {
-    let y = sectionTop + 50;
-    for (const item of allNews[col]) {
+    const x = colStart[col];
+    const header = colHeaders[col];
+
+    // Card background
+    png.fillRect(x, cardTop, colWidth, cardHeight, ...CARD_BG);
+    // Card border
+    png.drawRect(x, cardTop, colWidth, cardHeight, BORDER_COLOR);
+
+    // Header background
+    png.fillRect(x, cardTop, colWidth, 44, ...header.color);
+
+    // Header text
+    png.drawText(x + 14, cardTop + 10, header.title, WHITE, 15);
+
+    // News items
+    let y = cardTop + 58;
+    for (let i = 0; i < allNews[col].length; i++) {
+      const item = allNews[col][i];
+
+      // Alternating row background
+      if (i % 2 === 0) {
+        png.fillRect(x + 2, y - 4, colWidth - 4, 28, ...VERY_LIGHT_GRAY);
+      }
+
       // Bullet point
-      png.fillRect(colStart[col] + 15, y + 6, 6, 6, ...accentColors[col]);
+      png.fillRect(x + 14, y + 4, 8, 8, ...header.color);
+
+      // Number
+      png.drawText(x + 12, y - 1, String(i + 1), header.color, 11);
+
       // Text
-      png.drawText(colStart[col] + 28, y, item, BLACK, 13);
-      y += 28;
+      png.drawTextWrapped(x + 30, y, item, colWidth - 44, DARK_GRAY, 13, 18);
+
+      y += 32;
     }
+
+    // Bottom accent bar
+    png.fillRect(x, cardBottom - 4, colWidth, 4, ...header.color);
   }
 
-  // Bottom bar with attribution
-  png.fillRect(0, height - 35, width, 35, ...DARK_GRAY);
-  png.drawText(40, height - 25, 'make.fun  •  News Image Daily  •  Generated by AI Agent', [180, 180, 180], 11);
-  png.drawText(width - 280, height - 25, 'Summing up 19 November 2026', [180, 180, 180], 11);
+  // ===== BOTTOM BAR =====
+  const bottomBarY = height - 45;
+  png.fillRect(0, bottomBarY, width, 45, ...DARK_GRAY);
+  png.drawText(40, bottomBarY + 12, 'make.fun  •  News Image Daily  •  Generated by AI Agent', [170, 170, 170], 11);
+  png.drawText(width - 320, bottomBarY + 12, 'Summing up 19 November 2026', [170, 170, 170], 11);
 
-  // Decorative elements - world map silhouette hint
-  png.drawText(width - 120, 30, '🌍', BLACK, 24);
+  // ===== FOOTER =====
+  png.fillRect(0, height - 5, width, 5, ...ACCENT_RED);
 
   return png.toBuffer();
 }
